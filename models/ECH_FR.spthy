@@ -1,0 +1,38 @@
+theory ECH_FR
+begin
+
+// ECH-enabled direct DNS communication protocol
+
+// Built-in theory, function symbols, and equational theory
+builtins: asymmetric-encryption
+functions: queryA/0, fr1/0, fr2/0, sniA/0, as_ip/0, getEnc/1, outerCH/2
+equations: getEnc(outerCH(s, e)) = e
+
+
+// Generate the authoritative server's key pair and publish the ECH configuration
+rule Generate_AS_Key:
+    [ Fr(~skAS) ] 
+  --[ Generate_AS_Key_Event() ]-> 
+    [ !Ltk('AS', ~skAS), !ECHConfig('AS', pk(~skAS)), Out(pk(~skAS)) ] 
+
+// The full-service resolver sends a DNS query to the authoritative server
+rule Send_Query_FR:
+    [ !ECHConfig('AS', pkAS), Fr(~r) ]
+  --[ Send_Query_FR_Event() ]->
+    [ ToAS(diff(fr1, fr2), as_ip, outerCH(diff(fr1, fr2), aenc(<sniA, queryA, ~r>, pkAS))), Out(outerCH(diff(fr1, fr2), aenc(<sniA, queryA, ~r>, pkAS))) ]
+
+// The authoritative server decrypts the received DNS query
+rule Decrypt_Query_AS:
+    [ !Ltk('AS', skAS), ToAS(fr, as_ip, msg) ]
+  --[ Decrypt_Query_AS_Event() ]->
+    [ StateAS(fr, adec(getEnc(msg), skAS)) ]
+
+// Sanity check: ensure that all protocol rules are executable
+lemma Fire_Rule:
+    exists-trace
+    "
+    Ex #i #j #k. Generate_AS_Key_Event()@#i & Send_Query_FR_Event()@#j & 
+    Decrypt_Query_AS_Event()@#k
+    "
+
+end

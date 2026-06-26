@@ -1,0 +1,63 @@
+theory ProxyTargetAuth_Query
+begin
+
+// Multi-hop DNS anonymization protocol
+// (DNS query anonymity under a passive adversary within the authoritative DNS server)
+
+// Built-in theory, function symbols, and equational theory
+builtins: asymmetric-encryption
+functions: fr/0, q1/0, q2/0, proxy_ip/0, target_ip/0, as_ip/0
+equations: fst(<x.1, x.2>) = x.1
+
+// Generate the target resolver's key pair
+rule Generate_TR_Key:
+    [ Fr(~skTR) ]
+  --[ Generate_TR_Key_Event() ]->
+    [ !Ltk('TR', ~skTR), !NSRecord('TR', pk(~skTR)), Out(pk(~skTR)) ]
+
+// The full-service resolver sends a query to the proxy
+rule Send_Query_FR:
+    [ !NSRecord('TR', pkTR), Fr(~r) ]
+  --[ Send_Query_FR_Event() ]->
+    [ ToProxy(fr, aenc(<diff(q1, q2), ~r>, pkTR)) ]
+
+// The proxy receives the query
+rule Receive_Query_Proxy:
+    [ ToProxy(fr, enc_query) ]
+  --[ Receive_Query_Proxy_Event() ]->
+    [ StateProxy(fr, enc_query) ]
+
+// The proxy forwards the query to the target resolver
+rule Forward_Query_Proxy:
+    [ StateProxy(fr, enc_query) ]
+  --[ Forward_Query_Proxy_Event() ]->
+    [ ToTR(proxy_ip, target_ip, enc_query) ]
+
+// The target resolver decrypts the query
+rule Decrypt_Query_TR:
+    [ !Ltk('TR', skTR), ToTR(proxy_ip, target_ip, enc_query) ]
+  --[ Decrypt_Query_TR_Event() ]->
+    [ StateTR(<proxy_ip, fst(adec(enc_query, skTR))>) ]
+
+// The target resolver forwards the query to the authoritative DNS server
+rule Forward_Query_TR:
+    [ StateTR(<proxy_ip, query>) ]
+  --[ Forward_Query_TR_Event() ]->
+    [ ToAS(target_ip, as_ip, query) ]
+
+// The authoritative DNS server receives the query
+rule Receive_Query_AS:
+    [ ToAS(target_ip, as_ip, query) ]
+  --[ Receive_Query_AS_Event() ]->
+    [ Out(<target_ip, query>) ]
+
+// Sanity check: ensure that all protocol rules are executable
+lemma Fire_Rule:
+    exists-trace
+    "
+    Ex #i #j #k #l #m #n #o. Generate_TR_Key_Event()@#i & Send_Query_FR_Event()@#j &
+    Receive_Query_Proxy_Event()@#k & Forward_Query_Proxy_Event()@#l &
+    Decrypt_Query_TR_Event()@#m & Forward_Query_TR_Event()@#n & Receive_Query_AS_Event()@#o
+    "
+
+end
